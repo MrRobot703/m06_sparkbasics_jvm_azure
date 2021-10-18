@@ -21,6 +21,8 @@
     <spark.version>3.1.2</spark.version>
     <hadoop.version>3.3.1</hadoop.version>
 
+    <opencage.version>1.4.0</opencage.version>
+
     <isTestSkip>false</isTestSkip>
 
     <revision>1.0.0</revision>
@@ -95,6 +97,13 @@
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-azure-datalake</artifactId>
       <version>${hadoop.version}</version>
+    </dependency>
+
+    <!--opencage-->
+    <dependency>
+      <groupId>com.byteowls</groupId>
+      <artifactId>jopencage</artifactId>
+      <version>${opencage.version}</version>
     </dependency>
 
     <!--geohash-->
