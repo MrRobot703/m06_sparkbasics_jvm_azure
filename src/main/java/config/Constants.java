@@ -8,6 +8,6 @@ public class Constants {
     }
 
     public static class Security {
-        public static final String STORAGE_KEY_VALUE = "40DTD7NpbY1GivTxS/EFOug2CTnUGf6F7msf71WeyDH+TlauddJYvoUMZNP8+z4DixUdsp7nQD6GBWehSLxbiQ==";
+        public static final String STORAGE_KEY_VALUE = "you key to blob storage";
     }
 }
