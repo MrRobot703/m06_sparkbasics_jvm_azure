@@ -8,6 +8,10 @@ import services.api.LocationService;
 
 import java.io.Serializable;
 
+/*
+* JOpenCage service for mapping between latitude and longitude coordinates and
+* text address
+* */
 public class LocationServiceImpl implements LocationService, Serializable {
 
     private static final String API_KEY = "c8e728bf813f409f9ac68acf30b99156";

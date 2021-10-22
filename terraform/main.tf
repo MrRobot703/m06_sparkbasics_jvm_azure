@@ -1,5 +1,9 @@
 terraform {
   backend "azurerm" {
+    storage_account_name = "terraformstate420"
+    container_name       = "terraform-state-container"
+    key                  = "prod.terraform.tfstate"
+    access_key = "access key to you azure blob storage"
   }
 }
 
@@ -95,4 +99,5 @@ output "client_certificate" {
 
 output "kube_config" {
   value = azurerm_kubernetes_cluster.bdcc.kube_config_raw
+  sensitive = true
 }

@@ -1,68 +1,69 @@
 package driver;
 
-import org.apache.spark.SparkConf;
+import config.Constants;
+import config.ParquetIOConfig;
+import config.Security;
+import config.SparkConfig;
 
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.StructField;
-import org.apache.spark.sql.types.StructType;
 import utils.udfs.GeoHashUdf;
-import utils.udfs.LatitudeLongitudeUdf;
+import utils.udfs.CorrectCoordinatesUdf;
 
 import static org.apache.spark.sql.functions.*;
 
+//The driver of the spark application
 public class Driver {
 
     private final SparkSession sparkSession;
-
-    private static final String HOTELS_URL = "abfss://m06sparkbasics@bd201stacc.dfs.core.windows.net/hotels";
-    private static final String WEATHER_URL = "abfss://m06sparkbasics@bd201stacc.dfs.core.windows.net/weather";
 
     public static void main(String[] args) {
         Driver driver = new Driver();
         driver.start();
     }
 
+    /*
+    * Bootstrapping steps of the application:
+    * initializing spark session and setting user defined functions
+    * */
     public Driver() {
-        SparkConf sparkConf = new SparkConf()
-                .setAppName("Dummy Driver")
-                .setMaster("local[*]")
-                .set("fs.azure.account.auth.type.bd201stacc.dfs.core.windows.net",
-                        "OAuth"
-                )
-                .set("fs.azure.account.oauth.provider.type.bd201stacc.dfs.core.windows.net",
-                        "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider"
-                )
-                .set("fs.azure.account.oauth2.client.id.bd201stacc.dfs.core.windows.net",
-                        "f3905ff9-16d4-43ac-9011-842b661d556d"
-                )
-                .set("fs.azure.account.oauth2.client.secret.bd201stacc.dfs.core.windows.net",
-                        "mAwIU~M4~xMYHi4YX_uT8qQ.ta2.LTYZxT"
-                )
-                .set("fs.azure.account.oauth2.client.endpoint.bd201stacc.dfs.core.windows.net",
-                        "https://login.microsoftonline.com/b41b72d0-4e9f-4c26-8a69-f949f367c91d/oauth2/token"
-                );
         sparkSession = SparkSession.builder()
-                .config(sparkConf)
+                .config(SparkConfig.getSparkConfig())
                 .getOrCreate();
 
         sparkSession.udf().register("getCorrectCoordinates",
-                new LatitudeLongitudeUdf(),
+                new CorrectCoordinatesUdf(),
                 DataTypes.createArrayType(DataTypes.DoubleType)
         );
         sparkSession.udf().register("geoHash",
-                new GeoHashUdf(),
+                new GeoHashUdf(4),
                 DataTypes.StringType
         );
     }
 
     private void start() {
-        Dataset<Row> hotelsDF= getCSVData(HOTELS_URL);
-        Dataset<Row> weatherDF = getParquetData(WEATHER_URL);
 
+        /*
+        *                          Extracting stage.
+        * Retrieving the data from blob storage (with according fine-tuning of
+        * parquet format retrieval)
+        * */
+        Dataset<Row> hotelsDF= getCSVData(Constants.Storage.HOTELS_URL);
+        Dataset<Row> weatherDF = getParquetData(Constants.Storage.WEATHER_URL);
+
+        /*
+        *                          Cleansing stage.
+        * Filtering out the nulls of latitude and longitude in initial hotels' dataset
+        * by combining the part of the dataset without nulls (complement of the
+        * part with nulls) with new part where latitude and longitude are populated
+        * by location service (jOpenCage).
+        *                          Transformation stage.
+        * Also computing 4-character geohash on aforementioned columns as an additional
+        * column.
+        * */
         hotelsDF = hotelsDF.filter("Latitude IS NOT NULL AND Longitude IS NOT NULL")
                 .union(hotelsWithCorrectLatitudeAndLongitude(hotelsDF))
                 .withColumn("geoHash",
@@ -72,16 +73,32 @@ public class Driver {
                         )
                 );
 
+        /*
+        * Computing 4-character geohash on weather dataset based on latitude and longitude
+        * as well and adding this value to new column.
+         * */
         weatherDF = weatherDF.withColumn("geoHash",
                 callUDF("geoHash", col("lat"), col("lng"))
         );
 
+        /*
+        * Left joining hotels by weather on previously computed geohash columns
+        * */
         Dataset<Row> hotelsWeatherDataframe = hotelsDF
                 .join(weatherDF, hotelsDF.col("geoHash").equalTo(weatherDF.col("geoHash")), "left")
                 .drop("geoHash");
 
-        hotelsWeatherDataframe.show(5);
-        hotelsWeatherDataframe.printSchema();
+        /*
+        *                          Loading stage.
+        * Outputting the result to a blob storage (azure data lake gen 2)
+        * */
+        hotelsWeatherDataframe.write()
+                .mode("overwrite")
+                .options(ParquetIOConfig.getOptimalPerformanceConfig())
+                .options(Security.getOutPutStorageCredentials())
+                .partitionBy("year", "month", "day")
+                .format("parquet")
+                .save(Constants.Storage.HOTELS_WEATHER_URL);
 
         this.sparkSession.stop();
     }
@@ -112,7 +129,7 @@ public class Driver {
     private Dataset<Row> getParquetData(String url) {
         return this.sparkSession.read()
                 .format("parquet")
-                .option("inferSchema", "false")
+                .options(ParquetIOConfig.getOptimalPerformanceConfig())
                 .load(url);
     }
 }

@@ -4,7 +4,7 @@ import org.apache.spark.sql.api.java.UDF3;
 import services.api.LocationService;
 import services.impl.LocationServiceImpl;
 
-public class LatitudeLongitudeUdf implements UDF3<String, String, String, Double[]> {
+public class CorrectCoordinatesUdf implements UDF3<String, String, String, Double[]> {
 
     private final LocationService locationService = new LocationServiceImpl();
 

@@ -5,8 +5,14 @@ import org.apache.spark.sql.api.java.UDF2;
 
 public class GeoHashUdf implements UDF2<Double, Double, String> {
 
+    private final int precision;
+
+    public GeoHashUdf(int precision) {
+        this.precision = precision;
+    }
+
     @Override
-    public String call(Double latitude, Double longitude) throws Exception {
+    public String call(Double latitude, Double longitude) {
         if (latitude == null || longitude == null) return null;
 
         return hash(latitude, longitude);
@@ -17,6 +23,6 @@ public class GeoHashUdf implements UDF2<Double, Double, String> {
     }
 
     private String hash(double latitude, double longitude) {
-        return hash(latitude, longitude, 4);
+        return hash(latitude, longitude, precision);
     }
 }
