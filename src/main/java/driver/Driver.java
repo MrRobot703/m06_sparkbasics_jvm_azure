@@ -1,8 +1,7 @@
 package driver;
 
 import config.Constants;
-import config.ParquetIOConfig;
-import config.Security;
+import config.IOConfig;
 import config.SparkConfig;
 
 import org.apache.spark.sql.Dataset;
@@ -10,6 +9,7 @@ import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
+import services.impl.SecurityServiceImpl;
 import utils.udfs.GeoHashUdf;
 import utils.udfs.CorrectCoordinatesUdf;
 
@@ -19,6 +19,8 @@ import static org.apache.spark.sql.functions.*;
 public class Driver {
 
     private final SparkSession sparkSession;
+
+    private final SecurityServiceImpl securityService = new SecurityServiceImpl();
 
     public static void main(String[] args) {
         Driver driver = new Driver();
@@ -31,7 +33,7 @@ public class Driver {
     * */
     public Driver() {
         sparkSession = SparkSession.builder()
-                .config(SparkConfig.getSparkConfig())
+                .config(SparkConfig.getSparkConfigUsing(securityService))
                 .getOrCreate();
 
         sparkSession.udf().register("getCorrectCoordinates",
@@ -53,6 +55,9 @@ public class Driver {
         * */
         Dataset<Row> hotelsDF= getCSVData(Constants.Storage.HOTELS_URL);
         Dataset<Row> weatherDF = getParquetData(Constants.Storage.WEATHER_URL);
+
+        hotelsDF.show(5);
+        weatherDF.show(5);
 
         /*
         *                          Cleansing stage.
@@ -85,17 +90,25 @@ public class Driver {
         * Left joining hotels by weather on previously computed geohash columns
         * */
         Dataset<Row> hotelsWeatherDataframe = hotelsDF
-                .join(weatherDF, hotelsDF.col("geoHash").equalTo(weatherDF.col("geoHash")), "left")
+                .join(
+                        weatherDF,
+                        hotelsDF.col("geoHash").equalTo(weatherDF.col("geoHash")),
+                        "left"
+                )
                 .drop("geoHash");
+
+        hotelsWeatherDataframe.show(10);
 
         /*
         *                          Loading stage.
         * Outputting the result to a blob storage (azure data lake gen 2)
         * */
-        hotelsWeatherDataframe.write()
+        hotelsWeatherDataframe.repartition(col("year"), col("month"), col("day"))
+                .write()
                 .mode("overwrite")
-                .options(ParquetIOConfig.getOptimalPerformanceConfig())
-                .options(Security.getOutPutStorageCredentials())
+                .options(IOConfig.getOptimalParquetIOConfig())
+                .options(IOConfig.getOptimalObjectStoreIOConfig())
+                .options(securityService.getOutPutStorageCredentials())
                 .partitionBy("year", "month", "day")
                 .format("parquet")
                 .save(Constants.Storage.HOTELS_WEATHER_URL);
@@ -129,7 +142,7 @@ public class Driver {
     private Dataset<Row> getParquetData(String url) {
         return this.sparkSession.read()
                 .format("parquet")
-                .options(ParquetIOConfig.getOptimalPerformanceConfig())
+                .options(IOConfig.getOptimalParquetIOConfig())
                 .load(url);
     }
 }
